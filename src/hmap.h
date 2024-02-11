@@ -55,7 +55,7 @@ hmap_init(uint default_size, size_t value_size);
 hmap_node*
 hmap_find(hmap* table, const char* key);
 
-hmap*
+void
 hmap_resize(hmap* table, uint new_size);
 
 void

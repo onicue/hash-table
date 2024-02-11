@@ -15,7 +15,7 @@ _hmap_free_node(hmap_node* node){
 static inline void
 _hmap_refactor_check(hmap** table){
   if((float)(*table)->size * HM_REFACTOR_THRESHOLD <= (*table)->total_elements){
-    *table = hmap_resize(*table, (*table)->element_count * HM_RESIZE_RATE);
+    hmap_resize(*table, (*table)->element_count * HM_RESIZE_RATE);
   }
 }
 #endif
@@ -119,35 +119,27 @@ _hmap_init_node(const char* key, void* value, size_t value_size){
 }
 
 static int
-_hmap_create_node(hmap* table, const char* key, void* value){
+_hmap_create_node(hmap* table, const char* key, void* value) {
   uint32_t index = _hmap_compute_index(key, table->size);
   hmap_node** find_node = &table->chains[index];
 
-  while(*find_node != HM_EMPTY_NODE){
-    if((*find_node)->state){
-      return 0;
+  while (*find_node != HM_EMPTY_NODE) {
+    if (!strcmp(key, (*find_node)->key) && !(*find_node)->state) {
+      return 0;  // Duplicate key found
     } else {
-      *find_node = (*find_node)->next;
+      find_node = &(*find_node)->next;
     }
   }
 
-  if(*find_node == HM_EMPTY_NODE){
-    table->chains[index] = _hmap_init_node(key, value, table->value_size);
-    if(table->chains[index] == HM_EMPTY_NODE){
-      return 0;
-    }
-  }else {
-    (*find_node)->next = _hmap_init_node(key, value, table->value_size);
-    if((*find_node)->next == HM_EMPTY_NODE){
-      return 0;
-    }
+  *find_node = _hmap_init_node(key, value, table->value_size);
+  if (*find_node == HM_EMPTY_NODE) {
+    return 0;  // Node initialization error
   }
 
   table->element_count++;
   table->total_elements++;
   return 1;
 }
-
 
 hmap*
 hmap_init(uint default_size, size_t value_size){
@@ -221,22 +213,29 @@ hmap_change_by_node(hmap_node* node, void* value, size_t value_size){
   return 1;
 }
 
-hmap*
-hmap_resize(hmap* table, uint new_size){
+
+void
+hmap_resize(hmap* table, uint new_size) {
   hmap* new_map = hmap_init(new_size, table->value_size);
 
-  for(uint i = 0; i<table->size; i++){
+  for (uint i = 0; i < table->size; i++) {
     hmap_node* node = table->chains[i];
-    while(node != HM_EMPTY_NODE){
-      if(!node->state){
+    while (node != HM_EMPTY_NODE) {
+      if (!node->state) {
         _hmap_create_node(new_map, node->key, node->value);
       }
       node = node->next;
     }
   }
 
-  hmap_free(table);
-  return new_map;
+  // Update fields in the original table
+  free(table->chains);
+  table->chains = new_map->chains;
+  table->size = new_map->size;
+  table->element_count = new_map->element_count;
+  table->total_elements = new_map->total_elements;
+
+  free(new_map);
 }
 
 int
