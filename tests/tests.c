@@ -21,14 +21,11 @@ start_test(TestUnit* unit, hmap* table, const char* filePath){
   TextFileReader* reader = initializeTextFileReader(filePath);
   const char* word;
   while((word = readWord(reader)) != NULL){
-    printf("%s\n", word);
     if(!unit->TestFunction(table, word)){
-      printf("end\n");
       closeAndFree(reader);
       return 0;
     }
   }
-  printf("end\n");
   closeAndFree(reader);
   return 1;
 }

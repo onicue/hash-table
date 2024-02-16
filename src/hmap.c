@@ -15,7 +15,7 @@ _hmap_free_node(hmap_node* node){
 static inline void
 _hmap_refactor_check(hmap** table){
   if((float)(*table)->size * HM_REFACTOR_THRESHOLD <= (*table)->total_elements){
-    hmap_resize(*table, (*table)->element_count * HM_RESIZE_RATE);
+    hmap_resize(table, (*table)->element_count * HM_RESIZE_RATE);
   }
 }
 #endif
@@ -90,7 +90,7 @@ _hmap_compute_index(const char* key, uint table_size){
 
 inline static hmap_node*
 _hmap_init_node(const char* key, void* value, size_t value_size){
-  hmap_node* node = calloc(1, sizeof(hmap_node));
+  hmap_node* node = malloc(sizeof(hmap_node));
   if(node == HM_EMPTY_NODE){
     fprintf(stderr, "ERROR: node initialization error\n");
     return NULL;
@@ -100,6 +100,7 @@ _hmap_init_node(const char* key, void* value, size_t value_size){
   if (!node->key) {
     free(node);
     fprintf(stderr, "ERROR: key initialization error\n");
+    return NULL;
   }
 
   node->value = malloc(value_size);
@@ -112,7 +113,7 @@ _hmap_init_node(const char* key, void* value, size_t value_size){
 
   memcpy(node->value, value, value_size);
 
-  node->next = NULL;
+  node->next = HM_EMPTY_NODE;
   node->state = 0;
 
   return node;
@@ -121,18 +122,18 @@ _hmap_init_node(const char* key, void* value, size_t value_size){
 static int
 _hmap_create_node(hmap* table, const char* key, void* value) {
   uint32_t index = _hmap_compute_index(key, table->size);
-  hmap_node** find_node = &table->chains[index];
+  hmap_node** node = &table->chains[index];
 
-  while (*find_node != HM_EMPTY_NODE) {
-    if (!strcmp(key, (*find_node)->key) && !(*find_node)->state) {
+  while (*node != HM_EMPTY_NODE) {
+    if (!strcmp(key, (*node)->key) && !(*node)->state) {
       return 0;  // Duplicate key found
     } else {
-      find_node = &(*find_node)->next;
+      node = &(*node)->next;
     }
   }
 
-  *find_node = _hmap_init_node(key, value, table->value_size);
-  if (*find_node == HM_EMPTY_NODE) {
+  *node = _hmap_init_node(key, value, table->value_size);
+  if (*node == HM_EMPTY_NODE) {
     return 0;  // Node initialization error
   }
 
@@ -143,8 +144,8 @@ _hmap_create_node(hmap* table, const char* key, void* value) {
 
 hmap*
 hmap_init(uint default_size, size_t value_size){
-  if(default_size < 10){
-    fprintf(stderr, "Error: small size for hash table, size set to 10");
+  if (default_size < 10) {
+    fprintf(stderr, "Warning: Small size for hash table, size set to 10\n");
     default_size = 10;
   }
 
@@ -157,11 +158,16 @@ hmap_init(uint default_size, size_t value_size){
   table->value_size = value_size;
   table->size = default_size;
   table->element_count = 0;
+  table->total_elements = 0;
 
   table->chains = calloc(default_size, sizeof(hmap_node*));
   if(!table->chains){
     fprintf(stderr, "Error: Unable to allocate memory for hmap_node array");
     return HM_EMPTY_NODE;
+  }
+
+  for (uint i = 0; i < default_size; i++) {
+    table->chains[i] = HM_EMPTY_NODE;
   }
   return table;
 }
@@ -214,28 +220,41 @@ hmap_change_by_node(hmap_node* node, void* value, size_t value_size){
 }
 
 
-void
-hmap_resize(hmap* table, uint new_size) {
-  hmap* new_map = hmap_init(new_size, table->value_size);
+int
+hmap_resize(hmap** table, uint new_size) {
+  if ((*table) == NULL) {
+    fprintf(stderr, "Error: Attempting to resize a null hash table.\n");
+    return 0;
+  }
 
-  for (uint i = 0; i < table->size; i++) {
-    hmap_node* node = table->chains[i];
+  if (new_size == 0) {
+    fprintf(stderr, "Error: Invalid size for the new hash table.\n");
+    return 0;
+  }
+
+  hmap* new_map = hmap_init(new_size, (*table)->value_size);
+  if (!new_map) {
+    fprintf(stderr, "Error: Failed to initialize hash table inside hmap_resize.\n");
+    return 0;
+  }
+
+  for (uint i = 0; i < (*table)->size; i++) {
+    hmap_node* node = (*table)->chains[i];
     while (node != HM_EMPTY_NODE) {
       if (!node->state) {
-        _hmap_create_node(new_map, node->key, node->value);
+        int created_node_state = _hmap_create_node(new_map, node->key, node->value);
+        if (!created_node_state) {
+          fprintf(stderr, "Error: Failed to create a node during resizing.\n");
+          return 0;
+        }
       }
       node = node->next;
     }
   }
 
-  // Update fields in the original table
-  free(table->chains);
-  table->chains = new_map->chains;
-  table->size = new_map->size;
-  table->element_count = new_map->element_count;
-  table->total_elements = new_map->total_elements;
-
-  free(new_map);
+  hmap_free(*table);
+  *table = new_map;
+  return 1;
 }
 
 int
